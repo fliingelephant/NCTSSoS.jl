@@ -84,3 +84,15 @@ end
 open(joinpath(data_folder, "results.json"), "w") do f
     JSON.print(f, results)
 end
+
+#=
+data = JSON.parsefile(joinpath(data_folder, "results.json"))
+
+for d in data
+    file_name = d["test case"]
+    Lx, Ly, w, cutoff = match(r"Lx(\d+)-Ly(\d+)-(.*)-(.*)\.json", file_name).captures
+    w = (w == "uniform") ? "uniform" : "random"
+    cutoff = (cutoff == "longtailDiagonal") ? "diagonal" : "diagonal+NN"
+    println("| " * Lx * " | " * Ly * "| " * w * " | " * cutoff * " | $(round(d["Exact GSE by subspace"], digits=9)) | **$(round(d["GSE by SDP"], digits=9))** | **$(round(abs(d["GSE by SDP"] - d["Exact GSE by subspace"]), digits=9))** | $(round(d["elapsed time"], digits=3)) |")
+end
+=#

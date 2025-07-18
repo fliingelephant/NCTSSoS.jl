@@ -43,12 +43,12 @@ function cs_nctssos_with_blockade(pop::OP, solver_config::SolverConfig, blockade
    return NCTSSoS.PolyOptResult(objective_value(problem_to_solve.model), corr_sparsity, cliques_term_sparsities, problem_to_solve.model)
 end
 
-T = ComplexF64
+T = Float64
 data_folder = "examples/data"
 data_files = readdir(data_folder)
 
 results = Dict{String, Any}[]
-for file in data_files[11:11]
+for file in data_files
     Lx, Ly = map(match(r"Lx(\d+)-Ly(\d+)-.*\.json", file).captures) do m
         parse(Int, m)
     end
