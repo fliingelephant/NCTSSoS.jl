@@ -6,7 +6,7 @@ using MosekTools
 using Graphs
 
 
-function cs_nctssos_with_blockade(pop::OP, solver_config::SolverConfig, blockade_constraints::Vector{P}; dualize::Bool=true) where {P, OP<:NCTSSoS.OptimizationProblem{P}}
+function cs_nctssos_with_blockade(pop::OP, solver_config::SolverConfig, blockade_constraints::Vector{Polynomial{T}}; dualize::Bool=true) where {T, P<:Polynomial{T}, OP<:NCTSSoS.OptimizationProblem{P}}
     # temporarily add blockade constraints as algebraic constraints
    for c in blockade_constraints
        push!(pop.eq_constraints, c)
@@ -32,7 +32,7 @@ function cs_nctssos_with_blockade(pop::OP, solver_config::SolverConfig, blockade
    # recover blockade constraints
    for (type, cons) in moment_problem.constraints
        type == :HPSD && continue
-       (cons[1, 1] in blockade_constraints) && (cons[2:end, 2:end] .*= zero(ComplexF64))
+       (cons[1, 1] in blockade_constraints) && (cons[2:end, 2:end] .*= zero(T))
    end
 
    (pop isa NCTSSoS.ComplexPolyOpt{P} && !dualize) && error("Solving Moment Problem for Complex Poly Opt is not supported")
@@ -43,11 +43,12 @@ function cs_nctssos_with_blockade(pop::OP, solver_config::SolverConfig, blockade
    return NCTSSoS.PolyOptResult(objective_value(problem_to_solve.model), corr_sparsity, cliques_term_sparsities, problem_to_solve.model)
 end
 
+T = ComplexF64
 data_folder = "examples/data"
 data_files = readdir(data_folder)
 
 results = Dict{String, Any}[]
-for file in data_files
+for file in data_files[11:11]
     Lx, Ly = map(match(r"Lx(\d+)-Ly(\d+)-.*\.json", file).captures) do m
         parse(Int, m)
     end
@@ -59,14 +60,20 @@ for file in data_files
     N = Lx * Ly
     @ncpolyvar x[1:N] y[1:N] z[1:N]
 
-    H = zero(ComplexF64) - sum(data["Detuning"] ./2 .* (ones(ComplexF64, N) .- z)) + sum(data["Rabi"] ./2 .* x) + sum(map(V -> V[3] / 4 * (1-z[V[1]]) * (1-z[V[2]]), data["Vanderwaals"]); init=zero(ComplexF64))
+    H = zero(T) - sum(data["Detuning"] ./2 .* (ones(T, N) .- z)) + sum(data["Rabi"] ./2 .* x) + sum(map(V -> V[3] / 4 * (1-z[V[1]]) * (1-z[V[2]]), data["Vanderwaals"]); init=zero(T))
     @show H
 
-    Pauli_algebra = reduce(vcat, [[x[i] * y[i] - im * z[i], y[i] * x[i] + im * z[i], y[i] * z[i] - im * x[i], z[i] * y[i] + im * x[i], z[i] * x[i] - im * y[i], x[i] * z[i] + im * y[i]] for i in 1:N])
-    blockade_constraints = [one(ComplexF64) - z[e[1]] - z[e[2]] + z[e[1]] * z[e[2]] for e in data["PXP"]]
+    # full Pauli algebra for complex case, X Z anti-commute for real case
+    Pauli_algebra = T <: Complex ?
+        reduce(vcat, [[x[i] * y[i] - im * z[i], y[i] * x[i] + im * z[i], y[i] * z[i] - im * x[i], z[i] * y[i] + im * x[i], z[i] * x[i] - im * y[i], x[i] * z[i] + im * y[i]] for i in 1:N]) :
+        [x[i] * z[i] + z[i] * x[i] for i in 1:N]
+
+    blockade_constraints = [one(T) - z[e[1]] - z[e[2]] + z[e[1]] * z[e[2]] for e in data["PXP"]]
     @show blockade_constraints
 
-    pop = cpolyopt(H; eq_constraints=Pauli_algebra, comm_gps=[[x[i], y[i], z[i]] for i in 1:N], is_unipotent=true)
+    pop = T <: Complex ? cpolyopt(H; eq_constraints=Pauli_algebra, comm_gps=[[x[i], y[i], z[i]] for i in 1:N], is_unipotent=true) : 
+        cpolyopt(H; eq_constraints=Pauli_algebra, comm_gps=[[x[i], z[i]] for i in 1:N], is_unipotent=true) # FIXME: need to switch to polyopt for real case
+
     solver_config = SolverConfig(optimizer=Mosek.Optimizer, order=2)
 
     elapsed_time = @elapsed res = cs_nctssos_with_blockade(pop, solver_config, blockade_constraints)
@@ -81,6 +88,6 @@ for file in data_files
     ))
 end
 
-open(joinpath(data_folder, "results.json"), "w") do f
+open(joinpath(data_folder, "results_$(T).json"), "w") do f
     JSON.print(f, results)
 end
